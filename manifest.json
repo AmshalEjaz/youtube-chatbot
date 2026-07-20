@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "YT Summarizer Bot",
+  "version": "1.0.0",
+  "description": "Robot icon pe click karo aur is YouTube video ka free, local AI summary paayein — koi API key nahi chahiye.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_title": "YT Summarizer Bot - click to summarize this video"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*.youtube.com/watch*"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "permissions": ["activeTab", "scripting", "offscreen"],
+  "host_permissions": [
+    "https://*.youtube.com/*",
+    "https://huggingface.co/*",
+    "https://cdn-lfs.huggingface.co/*",
+    "https://cdn-lfs-us-1.huggingface.co/*",
+    "https://cdn.jsdelivr.net/*"
+  ]
+}

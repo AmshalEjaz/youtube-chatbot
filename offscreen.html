@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>YT Summarizer Bot - offscreen worker</title>
+</head>
+<body>
+  <!-- This page is never shown to the user. It exists only so the
+       Hugging Face embedding model has a browser context to run in,
+       outside the restrictive CSP of the YouTube page itself. -->
+  <script type="module" src="offscreen.js"></script>
+</body>
+</html>

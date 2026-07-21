@@ -1,43 +1,57 @@
+/* content.css - Bold "Robot Reel" chat design
+   ----------------------------------------------------------------
+   Palette pulled directly from the extension's own logo (red robot,
+   white face plate) instead of a generic dark/amber theme. Different
+   message types get different accent colors so the chat doesn't read
+   as monochrome:
+     bot text        -> neutral charcoal bubble
+     thinking/status  -> teal accent
+     timestamps       -> gold accent
+     errors            -> red accent
+   ---------------------------------------------------------------- */
+
 #yts-bot-panel {
-  --ink: #14161c;
-  --ink-raised: #1b1e27;
-  --paper: #ece8dd;
-  --muted: #8a8d9e;
-  --line: #2a2e3a;
-  --amber: #ffb454;
-  --amber-dim: #6b5a34;
+  --red: #ff3b30;
+  --red-dark: #c2261b;
+  --gold: #ffb454;
+  --teal: #4fd1c5;
+  --ink: #16141a;
+  --ink-raised: #211d26;
+  --paper: #f7f3ea;
+  --muted: #9a94a6;
+  --line: #34303e;
 
   position: fixed;
   bottom: 24px;
   right: 24px;
-  width: 380px;
-  max-width: 92vw;
+  width: 440px;
+  max-width: 94vw;
   display: flex;
   background: var(--ink);
   color: var(--paper);
-  border-radius: 10px;
+  border-radius: 14px;
   border: 1px solid var(--line);
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
   z-index: 999999;
   font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   overflow: hidden;
 }
 
-/* ---- Signature element: film-strip sprocket rail ---- */
+/* ---- Sprocket rail ---- */
 .yts-sprockets {
-  flex: 0 0 18px;
+  flex: 0 0 20px;
   background: var(--ink-raised);
   border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: space-evenly;
-  padding: 10px 0;
+  padding: 12px 0;
 }
 
 .yts-hole {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: 1px;
   background: var(--ink);
   border: 1px solid var(--line);
@@ -48,15 +62,24 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
+  max-height: 560px;
 }
 
-/* ---- Header ---- */
+/* ---- Header: red gradient banner, like the logo ---- */
 .yts-header {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--line);
+  padding: 14px 16px;
+  background: linear-gradient(135deg, var(--red) 0%, var(--red-dark) 100%);
+  flex: 0 0 auto;
+}
+
+.yts-header-logo {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
 }
 
 .yts-rec {
@@ -64,11 +87,11 @@
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: var(--amber-dim);
+  background: rgba(255, 255, 255, 0.4);
 }
 
 .yts-rec-active {
-  background: var(--amber);
+  background: #ffffff;
   animation: yts-pulse 1.1s ease-in-out infinite;
 }
 
@@ -79,8 +102,8 @@
 }
 
 @keyframes yts-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 180, 84, 0.55); }
-  50% { box-shadow: 0 0 0 5px rgba(255, 180, 84, 0); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.55); }
+  50% { box-shadow: 0 0 0 6px rgba(255, 255, 255, 0); }
 }
 
 .yts-heading {
@@ -88,110 +111,118 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  line-height: 1.2;
+  line-height: 1.25;
 }
 
 .yts-title {
-  font-size: 13.5px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 700;
   letter-spacing: 0.01em;
-  color: var(--paper);
+  color: #ffffff;
 }
 
 .yts-subtitle {
   font-size: 10.5px;
-  color: var(--muted);
+  color: rgba(255, 255, 255, 0.75);
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
 
 .yts-close {
   flex: 0 0 auto;
-  background: transparent;
+  background: rgba(255, 255, 255, 0.15);
   border: none;
-  color: var(--muted);
+  color: #ffffff;
   font-size: 18px;
   line-height: 1;
   cursor: pointer;
-  padding: 2px 4px;
+  padding: 2px 8px;
+  border-radius: 6px;
 }
 
 .yts-close:hover {
-  color: var(--paper);
+  background: rgba(255, 255, 255, 0.28);
 }
 
-/* ---- Body ---- */
-.yts-body {
-  padding: 14px;
-  max-height: 380px;
+/* ---- Chat log ---- */
+.yts-chat-log {
+  flex: 1;
   overflow-y: auto;
-  font-size: 13px;
-  line-height: 1.55;
-}
-
-.yts-status {
-  color: var(--muted);
-  margin: 0;
-}
-
-.yts-status-sub {
-  display: inline-block;
-  margin-top: 6px;
-  font-size: 11.5px;
-  color: var(--amber-dim);
-}
-
-.yts-error {
-  color: #e2836b;
-  margin: 0;
-}
-
-.yts-label {
-  font-size: 10.5px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--muted);
-  margin: 0 0 10px 0;
-}
-
-.yts-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+  padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 14px;
+  background: var(--ink);
 }
 
-.yts-frame {
+.yts-msg-row {
   display: flex;
-  gap: 10px;
   align-items: flex-start;
+  gap: 10px;
+  animation: yts-fade-in 0.2s ease;
+}
+
+@keyframes yts-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.yts-avatar {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--ink-raised);
+  border: 1.5px solid var(--red);
+  padding: 3px;
+}
+
+.yts-bubble {
   background: var(--ink-raised);
   border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 8px 10px;
+  border-left: 3px solid var(--muted);
+  border-radius: 4px 14px 14px 14px;
+  padding: 10px 13px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--paper);
+  max-width: 84%;
 }
 
+/* Different message types get different accent colors */
+.yts-bubble.yts-typing {
+  color: var(--teal);
+  border-left-color: var(--teal);
+  font-style: italic;
+}
+
+.yts-bubble.yts-error {
+  color: #ff8a7a;
+  border-left-color: var(--red);
+  background: rgba(255, 59, 48, 0.08);
+}
+
+/* Timestamp chip inline inside a bubble - gold accent */
 .yts-timestamp {
-  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  background: transparent;
-  border: 1px solid var(--amber-dim);
-  color: var(--amber);
+  background: rgba(255, 180, 84, 0.12);
+  border: 1px solid var(--gold);
+  color: var(--gold);
   font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
-  font-size: 11px;
-  padding: 3px 7px;
-  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 5px;
   cursor: pointer;
   white-space: nowrap;
+  margin-right: 8px;
+  vertical-align: middle;
 }
 
 .yts-timestamp:hover {
-  background: rgba(255, 180, 84, 0.12);
-  border-color: var(--amber);
+  background: rgba(255, 180, 84, 0.22);
 }
 
 .yts-play {
@@ -199,14 +230,43 @@
 }
 
 .yts-frame-text {
-  color: var(--paper);
+  vertical-align: middle;
 }
 
-/* Scrollbar tuned to match the dark theme */
-.yts-body::-webkit-scrollbar {
+/* Scrollbar */
+.yts-chat-log::-webkit-scrollbar {
   width: 8px;
 }
-.yts-body::-webkit-scrollbar-thumb {
+.yts-chat-log::-webkit-scrollbar-thumb {
   background: var(--line);
   border-radius: 4px;
+}
+
+/* ---- Floating robot button: red circle matching the logo ---- */
+#yts-fab {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #ff3b30 0%, #c2261b 100%);
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 999998;
+  box-shadow: 0 10px 28px rgba(255, 59, 48, 0.4);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+#yts-fab img {
+  width: 34px;
+  height: 34px;
+}
+
+#yts-fab:hover {
+  transform: scale(1.1);
+  box-shadow: 0 12px 32px rgba(255, 59, 48, 0.55);
 }

@@ -1,6 +1,8 @@
 // content.js
-// Runs directly on youtube.com/watch pages (this is your "view layer" —
-// like a Blade template + a bit of Alpine/vanilla JS on top).
+// Runs on youtube.com/watch pages. Injects a floating robot button and a
+// chat-style panel that summarizes the current video.
+
+console.log("[Youtube-Chatbot] content script loaded on", window.location.href);
 
 chrome.runtime.onMessage.addListener((message) => {
   if (message.type === "START_SUMMARIZE") {
@@ -8,12 +10,48 @@ chrome.runtime.onMessage.addListener((message) => {
   }
 });
 
-function getVideoIdFromUrl() {
-  const url = new URL(window.location.href);
-  return url.searchParams.get("v");
+// ---- Auto-injected floating robot button ----
+// Appears by itself on any youtube.com/watch page. Click it to open the chat.
+
+function injectFloatingButton() {
+  if (document.getElementById("yts-fab")) return; // already there
+
+  const fab = document.createElement("button");
+  fab.id = "yts-fab";
+  fab.setAttribute("aria-label", "Open Youtube-Chatbot");
+  const img = document.createElement("img");
+  img.src = chrome.runtime.getURL("icons/icon48.png");
+  img.alt = "Youtube-Chatbot";
+  fab.appendChild(img);
+  fab.addEventListener("click", () => {
+    runSummarizeFlow();
+  });
+  document.body.appendChild(fab);
 }
 
+function removeFloatingButtonIfNotWatchPage() {
+  const fab = document.getElementById("yts-fab");
+  if (fab && !window.location.pathname.startsWith("/watch")) {
+    fab.remove();
+  }
+}
 
+function checkPageAndToggleButton() {
+  if (window.location.pathname.startsWith("/watch")) {
+    injectFloatingButton();
+  } else {
+    removeFloatingButtonIfNotWatchPage();
+  }
+}
+
+checkPageAndToggleButton();
+
+// YouTube is a single-page app - it swaps the URL without a full reload
+// when you open another video. This event fires when that navigation
+// finishes, so we re-check whether the button should show.
+document.addEventListener("yt-navigate-finish", checkPageAndToggleButton);
+
+// ---- Chat panel UI ----
 
 function getOrCreatePanel() {
   let panel = document.getElementById("yts-bot-panel");
@@ -25,16 +63,15 @@ function getOrCreatePanel() {
     <div class="yts-sprockets" aria-hidden="true"></div>
     <div class="yts-main">
       <div class="yts-header">
+        <img class="yts-header-logo" src="${chrome.runtime.getURL("icons/icon48.png")}" alt="">
         <span class="yts-rec" id="yts-rec"></span>
         <div class="yts-heading">
-          <span class="yts-title">YT Summarizer</span>
-          <span class="yts-subtitle">local &middot; on-device</span>
+          <span class="yts-title">Youtube-Chatbot</span>
+          <span class="yts-subtitle">AI video assistant</span>
         </div>
         <button class="yts-close" id="yts-close-btn" aria-label="Close">&times;</button>
       </div>
-      <div class="yts-body" id="yts-body">
-        <p class="yts-status">Ready.</p>
-      </div>
+      <div class="yts-chat-log" id="yts-chat-log"></div>
     </div>
   `;
   document.body.appendChild(panel);
@@ -42,8 +79,7 @@ function getOrCreatePanel() {
     panel.remove();
   });
 
-  // 12 sprocket holes down the left rail, purely decorative (the film-strip
-  // signature element).
+  // Decorative sprocket rail on the left edge.
   const rail = panel.querySelector(".yts-sprockets");
   for (let i = 0; i < 12; i++) {
     const hole = document.createElement("span");
@@ -59,9 +95,32 @@ function setRecording(isActive) {
   if (rec) rec.classList.toggle("yts-rec-active", isActive);
 }
 
-function setBody(html) {
-  const panel = getOrCreatePanel();
-  panel.querySelector("#yts-body").innerHTML = html;
+function getChatLog() {
+  return getOrCreatePanel().querySelector("#yts-chat-log");
+}
+
+function scrollChatToBottom() {
+  const log = getChatLog();
+  log.scrollTop = log.scrollHeight;
+}
+
+// Adds a new chat bubble from the bot and returns it, so callers can
+// update or remove it later (e.g. a "thinking..." bubble).
+function addBotMessage(innerHTML, extraClass = "") {
+  const log = getChatLog();
+  const row = document.createElement("div");
+  row.className = "yts-msg-row";
+  row.innerHTML = `
+    <img class="yts-avatar" src="${chrome.runtime.getURL("icons/icon48.png")}" alt="">
+    <div class="yts-bubble ${extraClass}">${innerHTML}</div>
+  `;
+  log.appendChild(row);
+  scrollChatToBottom();
+  return row;
+}
+
+function clearChatLog() {
+  getChatLog().innerHTML = "";
 }
 
 function formatTimestamp(totalSeconds) {
@@ -80,10 +139,10 @@ function seekVideoTo(seconds) {
   }
 }
 
-// ---- Transcript extraction (same technique youtube-transcript-api uses:
-// read the caption track URL out of the watch page's player data) ----
-// Returns sentences WITH their timestamps, so the panel can offer
-// click-to-seek on every summary point.
+// ---- Transcript extraction ----
+// Reads the caption track URL out of the watch page's player data, the
+// same technique youtube-transcript-api uses. Returns sentences WITH
+// their timestamps so the chat can offer click-to-seek on every point.
 
 const TIME_MARKER = "\u0000"; // invisible marker, stripped before display
 
@@ -94,7 +153,7 @@ async function fetchTranscriptSentences() {
   const match = html.match(/ytInitialPlayerResponse\s*=\s*(\{.+?\})\s*;\s*(?:var|<\/script>)/s);
   if (!match) {
     throw new Error(
-      "Video ka data page se nahi mil saka. Page ko refresh karke dubara try karein."
+      "I couldn't read this video's data from the page. Try refreshing and asking again."
     );
   }
 
@@ -102,14 +161,14 @@ async function fetchTranscriptSentences() {
   try {
     playerResponse = JSON.parse(match[1]);
   } catch (e) {
-    throw new Error("Player data parse nahi ho saka.");
+    throw new Error("I couldn't parse this video's player data.");
   }
 
   const tracks =
     playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
   if (!tracks || tracks.length === 0) {
     throw new Error(
-      "Is video mein captions/transcript available nahi hain, isliye summarize nahi ho sakta."
+      "This video doesn't have captions/transcript available, so I can't summarize it."
     );
   }
 
@@ -135,7 +194,7 @@ async function fetchTranscriptSentences() {
     .trim();
 
   if (!marked) {
-    throw new Error("Transcript khaali mila.");
+    throw new Error("The transcript came back empty.");
   }
 
   const markerRe = new RegExp(`${TIME_MARKER}([\\d.]+)${TIME_MARKER}`, "g");
@@ -151,66 +210,63 @@ async function fetchTranscriptSentences() {
   }
 
   if (sentences.length === 0) {
-    throw new Error("Transcript se readable sentences nahi mil sake.");
+    throw new Error("I couldn't find readable sentences in the transcript.");
   }
   return sentences;
 }
 
-// ---- Main flow triggered by clicking the toolbar robot icon ----
+// ---- Main flow triggered by clicking the robot button ----
 
 async function runSummarizeFlow() {
   getOrCreatePanel();
+  clearChatLog();
   setRecording(true);
-  setBody(`<p class="yts-status">Transcript nikal raha hoon&hellip;</p>`);
+
+  addBotMessage("Hi! Let me take a look at this video for you.");
+  const statusBubble = addBotMessage("Reading the transcript&hellip;", "yts-typing");
 
   let sentences;
   try {
     sentences = await fetchTranscriptSentences();
   } catch (err) {
     setRecording(false);
-    setBody(`<p class="yts-error">${err.message}</p>`);
+    statusBubble.querySelector(".yts-bubble").outerHTML =
+      `<div class="yts-bubble yts-error">${err.message}</div>`;
     return;
   }
 
-  setBody(
-    `<p class="yts-status">Local AI model (Hugging Face) se key frames chun raha hoon&hellip;<br><span class="yts-status-sub">Pehli baar model download hota hai (~30MB) — uske baad turant chalega.</span></p>`
-  );
+  statusBubble.querySelector(".yts-bubble").innerHTML =
+    "Got it. Thinking through the key moments&hellip;";
 
   chrome.runtime.sendMessage(
     { type: "SUMMARIZE_TRANSCRIPT", sentences },
     (response) => {
       setRecording(false);
+
       if (chrome.runtime.lastError) {
-        setBody(`<p class="yts-error">${chrome.runtime.lastError.message}</p>`);
+        statusBubble.querySelector(".yts-bubble").outerHTML =
+          `<div class="yts-bubble yts-error">${chrome.runtime.lastError.message}</div>`;
         return;
       }
       if (!response || !response.ok) {
-        setBody(
-          `<p class="yts-error">${response?.error || "Kuch ghalat ho gaya."}</p>`
-        );
+        statusBubble.querySelector(".yts-bubble").outerHTML =
+          `<div class="yts-bubble yts-error">${response?.error || "Something went wrong."}</div>`;
         return;
       }
 
-      const frames = response.summary
-        .map(
-          (item, i) => `
-          <li class="yts-frame">
-            <button class="yts-timestamp" data-seek="${item.start}">
-              <span class="yts-play">&#9654;</span>${formatTimestamp(item.start)}
-            </button>
-            <span class="yts-frame-text">${item.text}</span>
-          </li>`
-        )
-        .join("");
+      statusBubble.remove();
+      addBotMessage("Here's what happens in this video:");
 
-      setBody(`
-        <p class="yts-label">Is video mein ye ho raha hai</p>
-        <ul class="yts-list">${frames}</ul>
-      `);
-
-      document.querySelectorAll(".yts-timestamp").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          seekVideoTo(parseFloat(btn.dataset.seek));
+      response.summary.forEach((item) => {
+        const html = `
+          <button class="yts-timestamp" data-seek="${item.start}">
+            <span class="yts-play">&#9654;</span>${formatTimestamp(item.start)}
+          </button>
+          <span class="yts-frame-text">${item.text}</span>
+        `;
+        const row = addBotMessage(html);
+        row.querySelector(".yts-timestamp").addEventListener("click", (e) => {
+          seekVideoTo(parseFloat(e.currentTarget.dataset.seek));
         });
       });
     }

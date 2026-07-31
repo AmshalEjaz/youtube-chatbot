@@ -1,30 +1,54 @@
 // content.js
-// Runs on youtube.com/watch pages. Injects a floating robot button and a
-// chat-style panel that summarizes the current video.
+// Runs on youtube.com/watch pages. Injects a floating VidPilot button and a
+// chat panel where you can ask questions about the current video.
 
-console.log("[Youtube-Chatbot] content script loaded on", window.location.href);
+console.log("[VidPilot] content script loaded on", window.location.href);
+
+// If the extension gets reloaded/updated while this tab is still open, the
+// old content script instance loses its connection to chrome.* APIs and
+// throws "Extension context invalidated." This checks for that case so we
+// can show a friendly message instead of crashing.
+function isExtensionContextValid() {
+  try {
+    return !!(chrome.runtime && chrome.runtime.id);
+  } catch (e) {
+    return false;
+  }
+}
+
+function safeIconUrl(path) {
+  try {
+    return chrome.runtime.getURL(path);
+  } catch (e) {
+    return ""; // extension context is gone; caller should have already checked
+  }
+}
 
 chrome.runtime.onMessage.addListener((message) => {
   if (message.type === "START_SUMMARIZE") {
-    runSummarizeFlow();
+    openPanel();
   }
 });
 
-// ---- Auto-injected floating robot button ----
-// Appears by itself on any youtube.com/watch page. Click it to open the chat.
+// Cache the transcript per video so we don't re-fetch it on every question.
+let cachedVideoId = null;
+let cachedSentences = null;
+
+// ---- Auto-injected floating button ----
 
 function injectFloatingButton() {
   if (document.getElementById("yts-fab")) return; // already there
+  if (!isExtensionContextValid()) return; // extension was reloaded; wait for tab refresh
 
   const fab = document.createElement("button");
   fab.id = "yts-fab";
-  fab.setAttribute("aria-label", "Open Youtube-Chatbot");
+  fab.setAttribute("aria-label", "Open VidPilot");
   const img = document.createElement("img");
-  img.src = chrome.runtime.getURL("icons/icon48.png");
-  img.alt = "Youtube-Chatbot";
+  img.src = safeIconUrl("icons/icon48.png");
+  img.alt = "VidPilot";
   fab.appendChild(img);
   fab.addEventListener("click", () => {
-    runSummarizeFlow();
+    openPanel();
   });
   document.body.appendChild(fab);
 }
@@ -37,25 +61,50 @@ function removeFloatingButtonIfNotWatchPage() {
 }
 
 function checkPageAndToggleButton() {
+  if (!isExtensionContextValid()) return; // extension was reloaded; this tab needs a refresh
+
   if (window.location.pathname.startsWith("/watch")) {
     injectFloatingButton();
+    updatePanelVideoTitle();
   } else {
     removeFloatingButtonIfNotWatchPage();
   }
 }
 
 checkPageAndToggleButton();
+let lastVideo="";
 
-// YouTube is a single-page app - it swaps the URL without a full reload
-// when you open another video. This event fires when that navigation
-// finishes, so we re-check whether the button should show.
-document.addEventListener("yt-navigate-finish", checkPageAndToggleButton);
+setInterval(()=>{
 
+    const id=getVideoIdFromUrl();
+
+    if(id!==lastVideo){
+
+        lastVideo=id;
+
+        cachedVideoId=null;
+
+        cachedSentences=null;
+
+        updatePanelVideoTitle();
+
+        console.log("Video Changed :",id);
+
+    }
+
+},500);
 // ---- Chat panel UI ----
 
 function getOrCreatePanel() {
   let panel = document.getElementById("yts-bot-panel");
   if (panel) return panel;
+
+  if (!isExtensionContextValid()) {
+    alert(
+      "VidPilot was just updated. Please refresh this YouTube page (Ctrl+Shift+R) and try again."
+    );
+    return null;
+  }
 
   panel = document.createElement("div");
   panel.id = "yts-bot-panel";
@@ -63,20 +112,39 @@ function getOrCreatePanel() {
     <div class="yts-sprockets" aria-hidden="true"></div>
     <div class="yts-main">
       <div class="yts-header">
-        <img class="yts-header-logo" src="${chrome.runtime.getURL("icons/icon48.png")}" alt="">
+        <img class="yts-header-logo" src="${safeIconUrl("icons/icon48.png")}" alt="">
         <span class="yts-rec" id="yts-rec"></span>
         <div class="yts-heading">
-          <span class="yts-title">Youtube-Chatbot</span>
-          <span class="yts-subtitle">AI video assistant</span>
+          <span class="yts-title">VidPilot</span>
+          <span class="yts-subtitle" id="yts-video-title">AI video assistant</span>
         </div>
         <button class="yts-close" id="yts-close-btn" aria-label="Close">&times;</button>
       </div>
       <div class="yts-chat-log" id="yts-chat-log"></div>
+      <form class="yts-input-row" id="yts-input-form">
+        <input
+          type="text"
+          id="yts-input"
+          class="yts-input"
+          placeholder="Ask about this video, or say 'summarize'..."
+          autocomplete="off"
+        />
+        <button type="submit" class="yts-send" aria-label="Send">&#10148;</button>
+      </form>
     </div>
   `;
   document.body.appendChild(panel);
+
   panel.querySelector("#yts-close-btn").addEventListener("click", () => {
     panel.remove();
+  });
+
+  panel.querySelector("#yts-input-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const input = panel.querySelector("#yts-input");
+    const question = input.value.trim();
+    input.value = "";
+    askVidPilot(question);
   });
 
   // Decorative sprocket rail on the left edge.
@@ -88,6 +156,48 @@ function getOrCreatePanel() {
   }
 
   return panel;
+}
+function updatePanelVideoTitle(){
+
+    const el=document.getElementById("yts-video-title");
+
+    if(!el) return;
+
+    const title=getVideoTitle();
+
+    const id=getVideoIdFromUrl();
+
+    el.innerHTML=`
+        <div>${title}</div>
+        <div style="
+            font-size:11px;
+            color:#d9d9d9;
+            margin-top:3px;
+        ">
+            Video ID : ${id}
+        </div>
+    `;
+}
+
+// Opens the panel and shows a greeting the first time it's created.
+// Waits for the user to type before responding.
+function openPanel() {
+  const alreadyExists = !!document.getElementById("yts-bot-panel");
+  const panel = getOrCreatePanel();
+  if (!panel) return; // extension context invalid; alert already shown
+  updatePanelVideoTitle();
+  if (!alreadyExists) {
+    addBotMessage(
+      "Hi, I'm VidPilot 🤖 Ask me anything about this video, or just type " +
+      "<em>\"summarize\"</em> and I'll tell you what's going on."
+    );
+  }
+  panelInputFocus();
+}
+
+function panelInputFocus() {
+  const input = document.getElementById("yts-input");
+  if (input) input.focus();
 }
 
 function setRecording(isActive) {
@@ -104,23 +214,28 @@ function scrollChatToBottom() {
   log.scrollTop = log.scrollHeight;
 }
 
-// Adds a new chat bubble from the bot and returns it, so callers can
-// update or remove it later (e.g. a "thinking..." bubble).
-function addBotMessage(innerHTML, extraClass = "") {
+function addUserMessage(text) {
   const log = getChatLog();
   const row = document.createElement("div");
-  row.className = "yts-msg-row";
-  row.innerHTML = `
-    <img class="yts-avatar" src="${chrome.runtime.getURL("icons/icon48.png")}" alt="">
-    <div class="yts-bubble ${extraClass}">${innerHTML}</div>
-  `;
+  row.className = "yts-msg-row yts-msg-row-user";
+  row.innerHTML = `<div class="yts-bubble yts-bubble-user"></div>`;
+  row.querySelector(".yts-bubble-user").textContent = text;
   log.appendChild(row);
   scrollChatToBottom();
   return row;
 }
 
-function clearChatLog() {
-  getChatLog().innerHTML = "";
+function addBotMessage(innerHTML, extraClass = "") {
+  const log = getChatLog();
+  const row = document.createElement("div");
+  row.className = "yts-msg-row";
+  row.innerHTML = `
+    <img class="yts-avatar" src="${safeIconUrl("icons/icon48.png")}" alt="">
+    <div class="yts-bubble ${extraClass}">${innerHTML}</div>
+  `;
+  log.appendChild(row);
+  scrollChatToBottom();
+  return row;
 }
 
 function formatTimestamp(totalSeconds) {
@@ -146,100 +261,167 @@ function seekVideoTo(seconds) {
 
 const TIME_MARKER = "\u0000"; // invisible marker, stripped before display
 
-async function fetchTranscriptSentences() {
-  const res = await fetch(window.location.href, { credentials: "include" });
-  const html = await res.text();
-
-  const match = html.match(/ytInitialPlayerResponse\s*=\s*(\{.+?\})\s*;\s*(?:var|<\/script>)/s);
-  if (!match) {
-    throw new Error(
-      "I couldn't read this video's data from the page. Try refreshing and asking again."
-    );
-  }
-
-  let playerResponse;
+// YouTube's caption endpoint sometimes returns an empty body for the
+// json3 format (depending on the video/track). If that happens, fall
+// back to the default XML transcript format instead of crashing.
+async function fetchCaptionEvents(baseUrl) {
+  // Attempt 1: json3 format (easiest to parse).
   try {
-    playerResponse = JSON.parse(match[1]);
+    const res = await fetch(baseUrl + "&fmt=json3", { credentials: "include" });
+    const raw = await res.text();
+    if (raw.trim()) {
+      const data = JSON.parse(raw);
+      const events = (data.events || [])
+        .filter((e) => e.segs && e.segs.length)
+        .map((e) => ({
+          text: e.segs.map((s) => s.utf8).join(""),
+          startSec: (e.tStartMs ?? 0) / 1000,
+        }))
+        .filter((e) => e.text.trim());
+      if (events.length > 0) return events;
+    }
   } catch (e) {
-    throw new Error("I couldn't parse this video's player data.");
+    // fall through to the XML attempt below
   }
 
-  const tracks =
-    playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-  if (!tracks || tracks.length === 0) {
+  // Attempt 2: default XML transcript format.
+  const res = await fetch(baseUrl, { credentials: "include" });
+  const xmlText = await res.text();
+  if (!xmlText.trim()) {
     throw new Error(
-      "This video doesn't have captions/transcript available, so I can't summarize it."
+      "YouTube didn't return any caption data for this video. Try again in a moment."
     );
   }
 
-  // Prefer English, otherwise take the first available track.
-  const track =
-    tracks.find((t) => t.languageCode?.startsWith("en")) || tracks[0];
+  const doc = new DOMParser().parseFromString(xmlText, "text/xml");
+  const nodes = [...doc.getElementsByTagName("text")];
+  const events = nodes
+    .map((node) => ({
+      text: (node.textContent || "")
+        .replace(/&amp;/g, "&")
+        .replace(/&#39;/g, "'")
+        .replace(/&quot;/g, '"')
+        .trim(),
+      startSec: parseFloat(node.getAttribute("start") || "0"),
+    }))
+    .filter((e) => e.text);
 
-  const captionRes = await fetch(track.baseUrl + "&fmt=json3");
-  const captionData = await captionRes.json();
-
-  // Stitch every caption event into one string, prefixing each event with
-  // an invisible \0<seconds>\0 marker so we can recover the start time of
-  // whichever event a sentence began in, after splitting into sentences.
-  const marked = (captionData.events || [])
-    .filter((e) => e.segs && e.segs.length)
-    .map((e) => {
-      const text = e.segs.map((s) => s.utf8).join("");
-      const startSec = (e.tStartMs ?? 0) / 1000;
-      return `${TIME_MARKER}${startSec}${TIME_MARKER}${text}`;
-    })
-    .join(" ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  if (!marked) {
-    throw new Error("The transcript came back empty.");
+  if (events.length === 0) {
+    throw new Error(
+      "YouTube didn't return any caption data for this video. Try again in a moment."
+    );
   }
+  return events;
+}
 
-  const markerRe = new RegExp(`${TIME_MARKER}([\\d.]+)${TIME_MARKER}`, "g");
-  const chunks = marked.split(/(?<=[.?!])\s+(?=[A-Z0-9])/);
+function getVideoIdFromUrl() {
+  return new URL(window.location.href).searchParams.get("v");
+}
 
-  const sentences = [];
-  for (const chunk of chunks) {
-    const times = [...chunk.matchAll(markerRe)].map((m) => parseFloat(m[1]));
-    const cleanText = chunk.replace(markerRe, "").trim();
-    if (cleanText.length > 15 && times.length > 0) {
-      sentences.push({ text: cleanText, start: times[0] });
+function getVideoTitle() {
+  // The document title is "<video title> - YouTube"; strip that suffix.
+  return document.title.replace(/\s*-\s*YouTube\s*$/, "").trim();
+}
+
+async function fetchTranscriptSentences() {
+
+    let playerResponse =
+        window.ytInitialPlayerResponse ||
+        window.ytplayer?.config?.args?.player_response;
+
+    if (!playerResponse) {
+
+        const scripts = [...document.scripts];
+
+        for (const script of scripts) {
+
+            const txt = script.textContent;
+
+            if (txt.includes("ytInitialPlayerResponse")) {
+
+                const match = txt.match(/ytInitialPlayerResponse\s*=\s*(\{[\s\S]*?\});/);
+
+                if (match) {
+                    try {
+                        playerResponse = JSON.parse(match[1]);
+                        break;
+                    } catch(e){}
+                }
+            }
+        }
     }
-  }
 
-  if (sentences.length === 0) {
-    throw new Error("I couldn't find readable sentences in the transcript.");
+    if (!playerResponse) {
+        throw new Error("Unable to load YouTube player information.");
+    }
+
+    const captionTracks =
+        playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+
+    if (!captionTracks || captionTracks.length === 0) {
+
+        throw new Error(
+            "This video has no captions. I can still answer normal questions, but I can't summarize the video."
+        );
+    }
+
+    const preferred =
+        captionTracks.find(t => t.languageCode === "en") ||
+        captionTracks.find(t => t.languageCode === "en-US") ||
+        captionTracks.find(t => t.kind === "asr") ||
+        captionTracks[0];
+
+    const events = await fetchCaptionEvents(preferred.baseUrl);
+
+    return events.map(e => ({
+        text: e.text,
+        start: e.startSec
+    }));
+}
+
+async function getSentencesForCurrentVideo() {
+  const videoId = getVideoIdFromUrl();
+  if (cachedVideoId === videoId && cachedSentences) {
+    return cachedSentences;
   }
+  const sentences = await fetchTranscriptSentences();
+  cachedVideoId = videoId;
+  cachedSentences = sentences;
   return sentences;
 }
 
-// ---- Main flow triggered by clicking the robot button ----
+// ---- Main flow: ask VidPilot something (typed by the user, or the
+// automatic first summary when the panel opens) ----
 
-async function runSummarizeFlow() {
-  getOrCreatePanel();
-  clearChatLog();
+async function askVidPilot(question, { showUserBubble = true } = {}) {
+  if (showUserBubble) {
+    addUserMessage(question || "Summarize this video");
+  }
   setRecording(true);
 
-  addBotMessage("Hi! Let me take a look at this video for you.");
   const statusBubble = addBotMessage("Reading the transcript&hellip;", "yts-typing");
 
-  let sentences;
-  try {
-    sentences = await fetchTranscriptSentences();
-  } catch (err) {
-    setRecording(false);
-    statusBubble.querySelector(".yts-bubble").outerHTML =
-      `<div class="yts-bubble yts-error">${err.message}</div>`;
-    return;
-  }
+let sentences;
+try{
 
-  statusBubble.querySelector(".yts-bubble").innerHTML =
-    "Got it. Thinking through the key moments&hellip;";
+    sentences = await getSentencesForCurrentVideo();
+
+}catch(e){
+
+    console.error("[VidPilot] Transcript fetch failed:", e);
+    sentences = [];
+}
+
+  statusBubble.querySelector(".yts-bubble").innerHTML = "Thinking&hellip;";
 
   chrome.runtime.sendMessage(
-    { type: "SUMMARIZE_TRANSCRIPT", sentences },
+  {
+      type:"ASK_ABOUT_VIDEO",
+      sentences,
+      question,
+      videoTitle: getVideoTitle(),
+      videoId: getVideoIdFromUrl()
+  },
     (response) => {
       setRecording(false);
 
@@ -255,20 +437,13 @@ async function runSummarizeFlow() {
       }
 
       statusBubble.remove();
-      addBotMessage("Here's what happens in this video:");
-
-      response.summary.forEach((item) => {
-        const html = `
-          <button class="yts-timestamp" data-seek="${item.start}">
-            <span class="yts-play">&#9654;</span>${formatTimestamp(item.start)}
-          </button>
-          <span class="yts-frame-text">${item.text}</span>
-        `;
-        const row = addBotMessage(html);
-        row.querySelector(".yts-timestamp").addEventListener("click", (e) => {
-          seekVideoTo(parseFloat(e.currentTarget.dataset.seek));
-        });
-      });
+      addBotMessage(escapeHtml(response.summary));
     }
   );
+}
+
+function escapeHtml(text) {
+  const div = document.createElement("div");
+  div.textContent = text;
+  return div.innerHTML;
 }

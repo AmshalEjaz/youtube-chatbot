@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import ollama
 
-OLLAMA_MODEL = "qwen2.5:1.5b"
+OLLAMA_MODEL = "qwen2.5:3b-instruct"
 
 app = Flask(__name__)
 CORS(app)
@@ -10,9 +10,6 @@ CORS(app)
 
 @app.errorhandler(Exception)
 def handle_any_error(e):
-    # Without this, an unexpected Python error returns an HTML error page,
-    # and the extension can't parse that as JSON ("Unexpected end of JSON
-    # input"). This guarantees valid JSON is always returned.
     print("Unhandled error:", repr(e))
     return jsonify({"ok": False, "error": f"Server error: {e}"}), 500
 

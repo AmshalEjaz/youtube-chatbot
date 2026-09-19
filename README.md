@@ -74,3 +74,6 @@ yt-summarizer-extension/
 ├── offscreen.html/.js   # Hugging Face model yahan chalta hai
 └── icons/                # robot icon (16/48/128px)
 ```
+## Preview
+
+<img width="1111" height="576" alt="image" src="https://github.com/user-attachments/assets/0d67ace1-282f-40c8-922b-95b6816d0520" />
